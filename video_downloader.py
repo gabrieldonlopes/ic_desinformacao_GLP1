@@ -4,19 +4,17 @@ import argparse
 import yt_dlp
 import subprocess
 
-#TODO: adicionar verificação da coluna aprovado
-
 def configurar_diretorios_video(video_id):
     """Cria a estrutura de pastas isolada para um vídeo específico."""
     base_dir = f"output/{video_id}"
     
-    # Cria apenas a pasta de frames. O áudio e o vídeo ficarão na raiz (base_dir)
+    # Cria apenas a pasta de frames. O áudio, legenda e o vídeo ficarão na raiz (base_dir)
     os.makedirs(f"{base_dir}/frames", exist_ok=True)
         
     return base_dir
 
-def baixar_midias(video_id):
-    """Baixa o áudio e o vídeo base direcionando-os para a pasta raiz do vídeo."""
+def baixar_midias(video_id, extrair_subs=False):
+    """Baixa o áudio e o vídeo base, com opção de incluir a transcrição (.srt)."""
     url = f"https://www.youtube.com/watch?v={video_id}"
     base_dir = configurar_diretorios_video(video_id)
     
@@ -27,21 +25,28 @@ def baixar_midias(video_id):
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        # REMOVIDO o /audio/ -> Salva direto na pasta raiz do ID
         'outtmpl': f'{base_dir}/%(id)s.%(ext)s',
         'quiet': True,
         'no_warnings': True
     }
+
+    # Injeta as opções de legenda caso o argumento seja passado
+    if extrair_subs:
+        opcoes_audio.update({
+            'writesubtitles': True,
+            'writeautomaticsub': True,
+            'subtitleslangs': ['pt'],  # Prioriza Português e Inglês
+            'subtitlesformat': 'srt',
+        })
 
     opcoes_video = {
         'format': 'worstvideo[ext=mp4]', 
-        # REMOVIDO o /video/ -> Salva direto na pasta raiz do ID
         'outtmpl': f'{base_dir}/%(id)s.%(ext)s',
         'quiet': True,
         'no_warnings': True
     }
 
-    print(f"[{video_id}] Baixando áudio...")
+    print(f"[{video_id}] Baixando áudio" + (" e legendas..." if extrair_subs else "..."))
     with yt_dlp.YoutubeDL(opcoes_audio) as ydl:
         ydl.download([url])
 
@@ -55,7 +60,6 @@ def extrair_frames(video_id, fps_desejado="1/10"):
     caminho_video = f"{base_dir}/{video_id}.mp4"
     padrao_saida = f"{base_dir}/frames/frame_%04d.jpg"
 
-    # Ajustado o texto para refletir a variável dinâmica
     print(f"[{video_id}] Extraindo frames (taxa: {fps_desejado})...")
     
     comando = [
@@ -70,7 +74,6 @@ def extrair_frames(video_id, fps_desejado="1/10"):
         subprocess.run(comando, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
         print(f"[{video_id}] Frames extraídos com sucesso!")
         
-        # Limpeza: Deleta o vídeo em mp4 para não lotar o HD
         if os.path.exists(caminho_video):
             os.remove(caminho_video)
             print(f"[{video_id}] Vídeo original (mp4) deletado para economizar espaço.")
@@ -78,29 +81,27 @@ def extrair_frames(video_id, fps_desejado="1/10"):
     except subprocess.CalledProcessError:
         print(f"[{video_id}] Erro no FFmpeg. Pulando extração.")
 
-def processar_video(video_id):
+def processar_video(video_id, extrair_subs):
     """Função orquestradora que executa todo o pipeline para um ID."""
     print(f"\n--- Iniciando processamento: {video_id} ---")
     try:
-        baixar_midias(video_id)
+        baixar_midias(video_id, extrair_subs)
         extrair_frames(video_id)
     except Exception as e:
         print(f"[{video_id}] Falha ao processar: {e}")
 
 if __name__ == "__main__":
-    # Configuração dos Argumentos (Args)
-    parser = argparse.ArgumentParser(description="Extrator Multimodal do YouTube (Áudio e Frames)")
+    parser = argparse.ArgumentParser(description="Extrator Multimodal do YouTube (Áudio, Frames e Legendas)")
     parser.add_argument("--id", type=str, help="ID único do vídeo para download individual")
     parser.add_argument("--csv", type=str, help="Caminho para o arquivo CSV de entrada")
-    parser.add_argument("--limit", type=int, help="Quantidade máxima de vídeos para processar do CSV", default=None)
+    parser.add_argument("--limit", type=int, help="Quantidade máxima de vídeos para processar do CSV", default=None)    
+    parser.add_argument("--subs", action="store_true", help="Baixa também a transcrição/legenda em .srt")
     
     args = parser.parse_args()
  
-    # Fluxo 1: Se o usuário passou um ID direto
     if args.id:
-        processar_video(args.id)
+        processar_video(args.id, args.subs)
         
-    # Fluxo 2: Se o usuário passou um CSV
     elif args.csv:
         if not os.path.exists(args.csv):
             print(f"Erro: O arquivo {args.csv} não foi encontrado.")
@@ -117,14 +118,12 @@ if __name__ == "__main__":
                     print(f"\nLimite de {args.limit} vídeo(s) atingido. Encerrando.")
                     break
                 
-                # Certifique-se de que o nome da coluna no seu CSV seja exatamente 'video_id'
-                video_id = linha.get('video_id') 
-                
+                video_id = linha.get('video_id')
                 if video_id:
-                    processar_video(video_id)
+                    processar_video(video_id, args.subs)
                     videos_processados += 1
                 else:
-                    print("Aviso: Linha sem 'video_id' encontrada, pulando...")
+                    print("Aviso: Linha sem 'Video_id' encontrada, pulando...")
                     
     else:
         print("Uso incorreto. Forneça --id <VIDEO_ID> ou --csv <CAMINHO_DO_CSV>")

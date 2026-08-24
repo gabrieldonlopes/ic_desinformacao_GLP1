@@ -36,4 +36,6 @@ Para utilizar um csv com uma lista de videos:
 python video_downloader.py --csv data/candidatos.csv --limit 10
 ```
 
+Caso queira extrair as legendas em .srt adicionar `--subs` nos argumentos
+
 *O script realizará o download do áudio e salvará frames a cada 10s*
