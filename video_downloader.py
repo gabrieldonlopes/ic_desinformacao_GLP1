@@ -28,6 +28,7 @@ def baixar_midias(video_id, extrair_subs=False):
         'quiet': True,
         'no_warnings': True,
         'cookiefile': 'cookies.txt', # LÊ INSTANTANEAMENTE (Crie o arquivo na mesma pasta)
+        'writethumbnail': True, # extrair thumbnail
     }
 
     if extrair_subs:
@@ -47,7 +48,7 @@ def baixar_midias(video_id, extrair_subs=False):
         'cookiefile': 'cookies.txt', 
     }
 
-    print(f"[{video_id}] Baixando áudio" + (" e legendas..." if extrair_subs else "..."))
+    print(f"[{video_id}] Baixando áudio, thumbnail" + (" e legendas..." if extrair_subs else "..."))
     with yt_dlp.YoutubeDL(opcoes_audio) as ydl:
         ydl.download([url])
 
