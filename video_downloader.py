@@ -41,7 +41,8 @@ def baixar_midias(video_id, extrair_subs=False):
 
     # 2. Configuração de Vídeo: Tenta pior mp4, depois pior webm, depois qualquer pior formato
     opcoes_video = {
-        'format': 'worstvideo[ext=mp4]/worstvideo/worst', 
+        'format': 'bestvideo[height<=720][ext=mp4]/bestvideo[height<=480][ext=mp4]/bestvideo[ext=mp4]/best', 
+        #'format': 'worstvideo[ext=mp4]/worstvideo/worst', 
         'outtmpl': f'{base_dir}/%(id)s.%(ext)s',
         'quiet': True,
         'no_warnings': True,
@@ -59,15 +60,16 @@ def baixar_midias(video_id, extrair_subs=False):
 def extrair_frames(video_id, fps_desejado="1/10"):
     """Encontra dinamicamente o arquivo de vídeo baixado e extrai os frames."""
     base_dir = f"output/{video_id}"
-    padrao_saida = f"{base_dir}/frames/frame_%04d.jpg"
+    pasta_frames = f"{base_dir}/frames"
+    padrao_saida = f"{pasta_frames}/frame_%04d.jpg"
 
-    # Busca qualquer arquivo no diretório raiz do vídeo que não seja texto ou áudio
+    os.makedirs(pasta_frames, exist_ok=True)
+
     arquivos_na_pasta = glob.glob(f"{base_dir}/{video_id}.*")
     caminho_video = None
     
     for arquivo in arquivos_na_pasta:
-        # Ignora arquivos de áudio, legendas e as próprias imagens
-        if not arquivo.endswith(('.mp3', '.srt', '.vtt', '.jpg', '.m4a')):
+        if not arquivo.endswith(('.mp3', '.srt', '.vtt', '.jpg', '.m4a', '.webp')):
             caminho_video = arquivo
             break
 
@@ -87,14 +89,13 @@ def extrair_frames(video_id, fps_desejado="1/10"):
     ]
 
     try:
-        subprocess.run(comando, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        subprocess.run(comando, check=True, stdout=subprocess.DEVNULL)
         print(f"[{video_id}] Frames extraídos com sucesso!")
         
-        # Deleta o vídeo original (seja mp4, webm ou mkv)
         os.remove(caminho_video)
         print(f"[{video_id}] Vídeo original (.{extensao}) deletado.")
             
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as e:
         print(f"[{video_id}] Erro no FFmpeg. Pulando extração.")
 
 def processar_video(video_id, extrair_subs):
