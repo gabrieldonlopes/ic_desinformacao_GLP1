@@ -30,11 +30,13 @@ def analisar_agrupamento(pasta_frames):
             print("PESSOA: identificada")
             print(f"GÊNERO: {estado['genero']}")
             print(f"IDADE: {estado['idade']}")
+            print(f"EMOÇÃO: {estado['emocao']}")
         else:
             print("PESSOA: não identificada")
             print("GÊNERO: N/A")
             print("IDADE: N/A")
-        print("") # Linha em branco para separar os blocos
+            print(f"EMOÇÃO: N/A")
+        print("") 
 
     for arquivo in arquivos:
         print(f"Processando: {arquivo}...", end='\r')
@@ -45,21 +47,26 @@ def analisar_agrupamento(pasta_frames):
         estado_frame = { 
             'identificada': False,
             'genero': 'N/A',
-            'idade': 'N/A'
+            'idade': 'N/A',
+            'emocao': 'N/A'
         }
 
         try:
             resultados = DeepFace.analyze(
                 img_path=caminho_completo,
-                actions=['age', 'gender'],
+                actions=['age', 'gender','emotion'],
                 enforce_detection=True,
                 detector_backend='retinaface', # modelo mais avançado para CPU
                 silent=True
             )
-            
+
+            if len(resultados) > 1:
+                resultados.sort(key=lambda r: r['region']['w'] * r['region']['h'], reverse=True)
+
             # pega os dados da pessoa principal no frame
             rosto = resultados[0] 
             idade = rosto['age']
+            emocao = rosto['dominant_emotion']
             
             # categorização da idade
             if idade < 18:
@@ -75,15 +82,15 @@ def analisar_agrupamento(pasta_frames):
             estado_frame['identificada'] = True
             estado_frame['genero'] = "Homem" if rosto['dominant_gender'] == "Man" else "Mulher"
             estado_frame['idade'] = faixa_etaria
+            estado_frame['emocao'] = emocao
 
         except ValueError:
-            # Cai aqui se o DeepFace não encontrar ninguém no frame
+            # cai aqui se o DeepFace não encontrar ninguém no frame
             pass
         except Exception as e:
             print(f"Erro ao ler imagem {arquivo}: {e}")
             continue
 
-        # Lógica para agrupar frames sequenciais iguais
         if estado_atual is None:
             # É o primeiríssimo frame do loop
             estado_atual = estado_frame
@@ -101,9 +108,7 @@ def analisar_agrupamento(pasta_frames):
             frame_inicial = nome_frame
             frame_final = nome_frame
 
-    # Imprime o último bloco pendente quando os arquivos acabarem
     if estado_atual is not None:
         imprimir_intervalo(frame_inicial, frame_final, estado_atual)
 
-# Substitua pelo caminho da sua pasta de frames
 analisar_agrupamento("./output/emagrecimento,como perder peso,dieta para emagrecer/2-qmpmzLXhE/frames")
