@@ -5,6 +5,41 @@ import yt_dlp # biblioteca de download principal
 import subprocess
 import glob # para encontrar o vídeo independente da extensão
 
+#TODO: adicionar detecção de vídeo 
+
+def verificar_disponibilidade_legendas(video_id):
+    """
+    Verifica quais tipos de legenda em português (manual e/ou automática) 
+    estão disponíveis para o vídeo. Retorna um dicionário com booleans.
+    """
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    disponiveis = {"manual": False, "automatic": False}
+    try:
+        resultado = subprocess.check_output(
+            ["yt-dlp", "--list-subs", url], 
+            stderr=subprocess.STDOUT, 
+            universal_newlines=True
+        )
+        saida = resultado.lower()
+        
+        # Verifica se há legendas manuais em PT
+        if "available subtitles" in saida:
+            partes = saida.split("available subtitles")
+            secao_manual = partes[1].split("available automatic captions")[0] if "available automatic captions" in partes[1] else partes[1]
+            if "pt" in secao_manual or "portuguese" in secao_manual:
+                disponiveis["manual"] = True
+                
+        # Verifica se há legendas automáticas em PT
+        if "available automatic captions" in saida:
+            secao_auto = saida.split("available automatic captions")[1]
+            if "pt" in secao_auto or "portuguese" in secao_auto:
+                disponiveis["automatic"] = True
+                
+    except subprocess.CalledProcessError:
+        pass
+    
+    return disponiveis
+
 def configurar_diretorios_video(video_id):
     """Cria a estrutura de pastas isolada para um vídeo específico."""
     base_dir = f"output/{video_id}"
@@ -12,11 +47,18 @@ def configurar_diretorios_video(video_id):
     return base_dir
 
 def baixar_midias(video_id, extrair_subs=False):
-    """Baixa o áudio e o vídeo base usando regras de formato mais flexíveis."""
+    """Baixa o áudio, vídeo base e gerencia o download de ambas as legendas."""
     url = f"https://www.youtube.com/watch?v={video_id}"
     base_dir = configurar_diretorios_video(video_id)
     
-    # 1. Configuração de Áudio: Se não achar só áudio, baixa o pior vídeo e arranca o áudio
+    status_subs = {"manual": False, "automatic": False}
+    if extrair_subs:
+        status_subs = verificar_disponibilidade_legendas(video_id)
+        encontrou_alguma = any(status_subs.values())
+        if not encontrou_alguma:
+            print(f"[{video_id}] Nenhuma legenda em português encontrada.")
+
+    # 1. Configuração de Áudio e Legendas
     opcoes_audio = {
         'format': 'bestaudio/best/worst',
         'postprocessors': [{
@@ -27,31 +69,51 @@ def baixar_midias(video_id, extrair_subs=False):
         'outtmpl': f'{base_dir}/%(id)s.%(ext)s',
         'quiet': True,
         'no_warnings': True,
-        'cookiefile': 'cookies.txt', # LÊ INSTANTANEAMENTE (Crie o arquivo na mesma pasta)
-        'writethumbnail': True, # extrair thumbnail
+        'cookiefile': 'cookies.txt',
+        'writethumbnail': True,
     }
 
-    if extrair_subs:
+    if extrair_subs and any(status_subs.values()):
         opcoes_audio.update({
-            'writesubtitles': True,
-            'writeautomaticsub': True,
+            'writesubtitles': status_subs["manual"],
+            'writeautomaticsub': status_subs["automatic"],
             'subtitleslangs': ['pt'],
             'subtitlesformat': 'srt',
         })
 
-    # 2. Configuração de Vídeo: Tenta pior mp4, depois pior webm, depois qualquer pior formato
     opcoes_video = {
-        'format': 'bestvideo[height<=720][ext=mp4]/bestvideo[height<=480][ext=mp4]/bestvideo[ext=mp4]/best', 
-        #'format': 'worstvideo[ext=mp4]/worstvideo/worst', 
+        'format': 'worstvideo[ext=mp4]/worstvideo/worst', 
         'outtmpl': f'{base_dir}/%(id)s.%(ext)s',
         'quiet': True,
         'no_warnings': True,
         'cookiefile': 'cookies.txt', 
     }
 
-    print(f"[{video_id}] Baixando áudio, thumbnail" + (" e legendas..." if extrair_subs else "..."))
+    print(f"[{video_id}] Baixando áudio, thumbnail" + (" e legendas disponíveis..." if (extrair_subs and any(status_subs.values())) else "..."))
     with yt_dlp.YoutubeDL(opcoes_audio) as ydl:
         ydl.download([url])
+
+        arquivos_srt = glob.glob(f"{base_dir}/{video_id}*.srt") + glob.glob(f"{base_dir}/{video_id}*.vtt")
+        
+        for arquivo in arquivos_srt:
+            if "manual_" in arquivo or "automatic_" in arquivo:
+                continue
+
+            nome_arquivo_baixo = os.path.basename(arquivo)
+            
+            if "auto" in nome_arquivo_baixo.lower() or (status_subs["automatic"] and not status_subs["manual"]):
+                novo_nome = f"{base_dir}/automatic_{video_id}.srt"
+            else:
+                novo_nome = f"{base_dir}/manual_{video_id}.srt"
+                
+            if arquivo.endswith('.vtt'):
+                novo_nome = novo_nome.replace('.srt', '.vtt')
+
+            if os.path.exists(novo_nome):
+                os.remove(novo_nome)
+            
+            os.rename(arquivo, novo_nome)
+            print(f"[{video_id}] Legenda processada: {os.path.basename(novo_nome)}")
 
     print(f"[{video_id}] Baixando vídeo (fallback dinâmico)...")
     with yt_dlp.YoutubeDL(opcoes_video) as ydl:
