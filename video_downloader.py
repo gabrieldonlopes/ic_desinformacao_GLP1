@@ -3,9 +3,8 @@ import csv
 import argparse
 import yt_dlp # biblioteca de download principal
 import subprocess
-import glob # para encontrar o vídeo independente da extensão
-
-#TODO: adicionar detecção de vídeo 
+import glob
+import shutil 
 
 def verificar_disponibilidade_legendas(video_id):
     """
@@ -50,17 +49,22 @@ def baixar_midias(video_id, extrair_subs=False):
     """Baixa o áudio, vídeo base e gerencia o download de ambas as legendas."""
     url = f"https://www.youtube.com/watch?v={video_id}"
     base_dir = configurar_diretorios_video(video_id)
+    # 1. Cópia segura da sessão (evita bloqueios de permissão e corrupção)
+    if os.path.exists('cookies_base.txt'):
+        shutil.copy('cookies_base.txt', 'cookies_temp.txt')
+    elif os.path.exists('cookies.txt'):
+        shutil.copy('cookies.txt', 'cookies_temp.txt')
+    else:
+        open('cookies_temp.txt', 'w').close()
     
     status_subs = {"manual": False, "automatic": False}
     if extrair_subs:
         status_subs = verificar_disponibilidade_legendas(video_id)
-        encontrou_alguma = any(status_subs.values())
-        if not encontrou_alguma:
+        if not any(status_subs.values()):
             print(f"[{video_id}] Nenhuma legenda em português encontrada.")
 
-    # 1. Configuração de Áudio e Legendas
     opcoes_audio = {
-        'format': 'bestaudio/best/worst',
+        'format': 'ba/bestaudio/b', # 'b' garante que pega o stream combinado se o áudio isolado falhar
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
@@ -69,7 +73,8 @@ def baixar_midias(video_id, extrair_subs=False):
         'outtmpl': f'{base_dir}/%(id)s.%(ext)s',
         'quiet': True,
         'no_warnings': True,
-        'cookiefile': 'cookies.txt',
+        'cookiefile': 'cookies_temp.txt',
+        'extractor_args': {'youtube': ['player_client=android']}, # Injeção do cliente móvel
         'writethumbnail': True,
     }
 
@@ -82,25 +87,24 @@ def baixar_midias(video_id, extrair_subs=False):
         })
 
     opcoes_video = {
-        'format': 'worstvideo[ext=mp4]/worstvideo/worst', 
+        'format': 'bv/bestvideo/b', # 'b' serve como rede de segurança para a API Android
         'outtmpl': f'{base_dir}/%(id)s.%(ext)s',
         'quiet': True,
         'no_warnings': True,
-        'cookiefile': 'cookies.txt', 
+        'cookiefile': 'cookies_temp.txt', 
+        'extractor_args': {'youtube': ['player_client=android']}, # Injeção do cliente móvel
     }
 
-    print(f"[{video_id}] Baixando áudio, thumbnail" + (" e legendas disponíveis..." if (extrair_subs and any(status_subs.values())) else "..."))
+    print(f"[{video_id}] Baixando áudio, thumbnail" + (" e legendas..." if (extrair_subs and any(status_subs.values())) else "..."))
     with yt_dlp.YoutubeDL(opcoes_audio) as ydl:
         ydl.download([url])
 
         arquivos_srt = glob.glob(f"{base_dir}/{video_id}*.srt") + glob.glob(f"{base_dir}/{video_id}*.vtt")
-        
         for arquivo in arquivos_srt:
             if "manual_" in arquivo or "automatic_" in arquivo:
                 continue
 
             nome_arquivo_baixo = os.path.basename(arquivo)
-            
             if "auto" in nome_arquivo_baixo.lower() or (status_subs["automatic"] and not status_subs["manual"]):
                 novo_nome = f"{base_dir}/automatic_{video_id}.srt"
             else:
@@ -111,9 +115,7 @@ def baixar_midias(video_id, extrair_subs=False):
 
             if os.path.exists(novo_nome):
                 os.remove(novo_nome)
-            
             os.rename(arquivo, novo_nome)
-            print(f"[{video_id}] Legenda processada: {os.path.basename(novo_nome)}")
 
     print(f"[{video_id}] Baixando vídeo (fallback dinâmico)...")
     with yt_dlp.YoutubeDL(opcoes_video) as ydl:
@@ -144,6 +146,8 @@ def extrair_frames(video_id, fps_desejado="1/10"):
     
     comando = [
         "ffmpeg",
+        "-hide_banner",
+        "-loglevel","error",
         "-i", caminho_video,
         "-vf", f"fps={fps_desejado}",
         "-q:v", "2",
